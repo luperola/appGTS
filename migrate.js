@@ -1,7 +1,7 @@
-// migrate.js
-const db = require("./db");
+// migrate.js — ESM
+import db from "./db.js";
 
-(async () => {
+const run = async () => {
   await db.query(`
     CREATE TABLE IF NOT EXISTS entries (
       id SERIAL PRIMARY KEY,
@@ -22,8 +22,11 @@ const db = require("./db");
     `CREATE INDEX IF NOT EXISTS idx_entries_person ON entries(person)`
   );
   console.log("DB migrated ✔");
-  process.exit(0);
-})().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+};
+
+run()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
