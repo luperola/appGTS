@@ -56,3 +56,8 @@ Thumbs.db
 # VSCode settings (local only)
 # =========================
 .vscode/
+
+# --- eccezioni necessarie per far funzionare la app online ---
+!/data/entries.json
+!/data/operators.xlsx
+
