@@ -66,6 +66,17 @@
         <a href="/admin.html">Area Admin</a>
       </div>
     </div>
+    <label for="operatoriInput">Seleziona operatore</label>
+    <input
+      id="operatoriInput"
+      list="operatoriList"
+      placeholder="Seleziona operatore…"
+      autocomplete="off"
+    />
+
+    <!-- La lista di suggerimenti per l'input -->
+    <datalist id="operatoriList"></datalist>
+
     <select id="operatori"></select>
     <script src="/main.js" defer></script>
   </body>

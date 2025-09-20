@@ -1,21 +1,21 @@
 // public/main.js
-async function loadOperators() {
-  const sel =
-    document.getElementById("operatori") ||
-    document.getElementById("operatorSelect") ||
-    document.querySelector("[data-operators]");
+// Popola la select #operatori e/o il datalist #operatoriList (per l'input #operatoriInput)
+// Fonte dati: /api/operators
 
-  if (!sel) {
-    console.warn('[loadOperators] select non trovata (id="operatori")');
-    return;
+(async function () {
+  async function getOperators() {
+    const res = await fetch("/api/operators", {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`GET /api/operators ${res.status}`);
+    return await res.json(); // es. ["Mario Rossi", "Luca Bianchi", ...]
   }
 
-  try {
-    const res = await fetch("/api/operators", { cache: "no-store" });
-    if (!res.ok) throw new Error(`GET /api/operators ${res.status}`);
-    const ops = await res.json();
-    console.log("[loadOperators] operators:", ops);
+  const unique = (arr) => [...new Set((arr || []).filter(Boolean))];
 
+  function populateSelect(sel, ops) {
+    if (!sel) return;
     sel.innerHTML = '<option value="">Seleziona operatore…</option>';
     for (const name of ops) {
       const opt = document.createElement("option");
@@ -23,18 +23,68 @@ async function loadOperators() {
       opt.textContent = name;
       sel.appendChild(opt);
     }
-  } catch (err) {
-    console.error("[loadOperators] errore:", err);
   }
-}
 
-// con defer il DOM è già pronto
-loadOperators();
+  function populateDatalist(dl, ops) {
+    if (!dl) return;
+    dl.innerHTML = "";
+    for (const name of ops) {
+      const opt = document.createElement("option");
+      opt.value = name; // per datalist basta il value
+      dl.appendChild(opt);
+    }
+  }
 
-// ricarica su focus (comodo se gli operatori cambiano)
-document.addEventListener("focusin", (e) => {
-  const sel =
-    document.getElementById("operatori") ||
-    document.getElementById("operatorSelect");
-  if (sel && e.target === sel) loadOperators();
-});
+  function wireSync(sel, inp) {
+    if (!sel || !inp) return;
+    // Se scegli dalla select, aggiorna l'input
+    sel.addEventListener("change", () => {
+      inp.value = sel.value || "";
+    });
+    // Se scrivi nell'input e c'è una voce uguale, selezionala nella select
+    inp.addEventListener("input", () => {
+      const val = inp.value;
+      const match = Array.from(sel.options).find((o) => o.value === val);
+      if (match) sel.value = val;
+    });
+  }
+
+  async function init() {
+    // Tollerante: prova più selettori per compatibilità con le tue pagine
+    const sel =
+      document.getElementById("operatori") ||
+      document.getElementById("operatorSelect") ||
+      document.querySelector("[data-operators]");
+    const dl =
+      document.getElementById("operatoriList") ||
+      document.querySelector("datalist[data-operators]");
+    const inp =
+      document.getElementById("operatoriInput") ||
+      document.querySelector('input[list="operatoriList"]') ||
+      document.querySelector("input[data-operators]");
+
+    // Se la pagina non ha né select né datalist, non fare nulla
+    if (!sel && !dl) {
+      return;
+    }
+
+    try {
+      const ops = unique(await getOperators());
+      if (sel) populateSelect(sel, ops);
+      if (dl) populateDatalist(dl, ops);
+      wireSync(sel, inp);
+
+      // marcatori utili per debug veloce da console
+      if (sel) sel.setAttribute("data-loaded", "1");
+      if (dl) dl.setAttribute("data-loaded", "1");
+    } catch (err) {
+      console.error("[operators] errore:", err);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();

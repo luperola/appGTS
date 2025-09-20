@@ -155,8 +155,22 @@
       });
     </script>
 
+    <!-- dove ti serve la scelta operatore -->
+    <label for="operatoriInput">Seleziona operatore</label>
+    <input
+      id="operatoriInput"
+      list="operatoriList"
+      placeholder="Seleziona operatore…"
+      autocomplete="off"
+    />
+    <datalist id="operatoriList"></datalist>
+
+    <!-- (opzionale) mantieni anche la tendina -->
     <select id="operatori"></select>
-    <script src="admin.js"></script>
+
+    <!-- script: carica main.js con defer -->
     <script src="/main.js" defer></script>
+    <!-- se hai anche admin.js, mettilo DOPO -->
+    <script src="/admin.js" defer></script>
   </body>
 </html>
