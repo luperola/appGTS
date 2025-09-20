@@ -91,46 +91,15 @@ app.delete("/api/entries/:id", async (req, res, next) => {
 });
 
 // GET operators — legge data/operators.xlsx (prima colonna) se presente
-app.get("/api/operators", async (req, res) => {
+// SOSTITUISCI tutta la tua rotta /api/operators con questa
+app.get("/api/operators", async (_req, res, next) => {
   try {
-    const xlsxPath = path.join(__dirname, "data", "operators.xlsx");
-    if (!fs.existsSync(xlsxPath)) {
-      return res.json([]); // file assente: restituisci array vuoto
-    }
-
-    // import dinamico per non rompere se exceljs non è installato
-    let ExcelJS;
-    try {
-      const mod = await import("exceljs");
-      ExcelJS = mod.default || mod;
-    } catch {
-      return res.json([]); // exceljs non disponibile
-    }
-
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(xlsxPath);
-    const ws = wb.worksheets[0];
-    if (!ws) return res.json([]);
-
-    const names = [];
-    ws.eachRow((row, rowNumber) => {
-      const val = (row.getCell(1).value ?? "").toString().trim();
-      if (!val) return;
-      const headerCandidates = [
-        "persona",
-        "person",
-        "name",
-        "operatore",
-        "operator",
-      ];
-      if (rowNumber === 1 && headerCandidates.includes(val.toLowerCase()))
-        return; // salta header
-      if (!names.includes(val)) names.push(val);
-    });
-
-    res.json(names);
-  } catch {
-    res.json([]);
+    const { rows } = await db.query(
+      `SELECT DISTINCT person FROM entries ORDER BY person`
+    );
+    res.json(rows.map((r) => r.person));
+  } catch (err) {
+    next(err);
   }
 });
 
