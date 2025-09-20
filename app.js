@@ -1,246 +1,166 @@
-import express from "express";
-import fs from "fs";
-import path from "path";
-import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
-import ExcelJS from "exceljs";
-import xlsx from "xlsx";
-import { fileURLToPath } from "url";
+// app.js — versione ESM con Postgres per /api/entries
 
-dotenv.config();
+import path from "path";
+import fs from "fs";
+import express from "express";
+import { fileURLToPath } from "url";
+import db from "./db.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, "data");
-const ENTRIES_PATH = path.join(DATA_DIR, "entries.json");
-const OPERATORS_XLSX = path.join(DATA_DIR, "operators.xlsx");
 
+// ===== Middleware base =====
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
 
+// Statici: /public (index.html, main.js, styles.css, ecc.)
+app.use(express.static("public"));
+
+// (Facoltativo) Servi anche i file seed in /data (es. operators.xlsx)
 app.use("/data", express.static("data"));
 
-function ensureEntriesFile() {
-  if (!fs.existsSync(ENTRIES_PATH)) {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(ENTRIES_PATH, JSON.stringify([]), "utf-8");
+// ===== Helpers =====
+function toISO(d) {
+  // Converte "DD/MM/YYYY" -> "YYYY-MM-DD"; se è già ISO, la lascia così
+  if (!d) return null;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) {
+    const [dd, mm, yyyy] = d.split("/");
+    return `${yyyy}-${mm}-${dd}`;
   }
-}
-function loadEntries() {
-  ensureEntriesFile();
-  return JSON.parse(fs.readFileSync(ENTRIES_PATH, "utf-8"));
-}
-function saveEntries(entries) {
-  fs.writeFileSync(ENTRIES_PATH, JSON.stringify(entries, null, 2), "utf-8");
-}
-function readOperators() {
-  if (!fs.existsSync(OPERATORS_XLSX)) return [];
-  const wb = xlsx.readFile(OPERATORS_XLSX);
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
-  return rows.map((r) => (r.OPERATORI || "").toString().trim()).filter(Boolean);
+  return d;
 }
 
-function authMiddleware(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "Token mancante" });
+// ===== ROUTES API =====
+
+// GET tutte le entries (dal DB)
+app.get("/api/entries", async (req, res, next) => {
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || "devsecret");
-    req.user = payload;
-    next();
-  } catch {
-    return res.status(401).json({ error: "Token non valido" });
-  }
-}
-
-app.get("/api/operators", (req, res) =>
-  res.json({ operators: readOperators() })
-);
-
-app.post("/api/entry", (req, res) => {
-  const { operator, macchina, linea, ore, data, descrizione } = req.body;
-  if (!operator || !macchina || !linea || !ore || !data || !descrizione) {
-    return res.status(400).json({ error: "Tutti i campi sono obbligatori." });
-  }
-  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(data)) {
-    return res
-      .status(400)
-      .json({ error: "Formato data non valido (usa DD/MM/YYYY)." });
-  }
-  const numOre = Number(ore);
-  if (!isFinite(numOre) || numOre <= 0)
-    return res.status(400).json({ error: "Ore deve essere un numero > 0." });
-
-  const entry = {
-    id: Date.now(),
-    operator,
-    macchina,
-    linea,
-    ore: numOre,
-    data,
-    descrizione,
-    createdAt: new Date().toISOString(),
-  };
-  const entries = loadEntries();
-  entries.push(entry);
-  saveEntries(entries);
-  res.json({ ok: true, entry });
-});
-
-app.post("/api/login", (req, res) => {
-  const { user, pass } = req.body;
-  if (
-    user === (process.env.ADMIN_USER || "admin") &&
-    pass === (process.env.ADMIN_PASS || "GTSTrack")
-  ) {
-    const token = jwt.sign(
-      { role: "admin", user },
-      process.env.JWT_SECRET || "devsecret",
-      { expiresIn: "12h" }
+    const { rows } = await db.query(
+      `SELECT id, person, cantiere, equipment,
+              work_type AS "workType",
+              to_char(work_date,'DD/MM/YYYY') AS date,
+              hours, notes
+       FROM entries
+       ORDER BY work_date DESC, id DESC`
     );
-    return res.json({ token });
+    res.json(rows);
+  } catch (err) {
+    next(err);
   }
-  return res.status(401).json({ error: "Credenziali non valide." });
 });
 
-// --------- Filtri condivisi ----------
-function applyFilters(
-  list,
-  { macchina, linea, operator, descrContains, dataFrom, dataTo } = {}
-) {
-  const parseIt = (it) => {
-    const [d, m, y] = (it || "").split("/").map(Number);
-    return new Date(y || 0, (m || 1) - 1, d || 1);
-  };
-  let entries = [...list];
-  if (macchina) entries = entries.filter((e) => e.macchina === macchina);
-  if (linea) entries = entries.filter((e) => e.linea === linea);
-  if (operator) entries = entries.filter((e) => e.operator === operator);
-  if (descrContains) {
-    const needle = String(descrContains).toLowerCase();
-    entries = entries.filter((e) =>
-      String(e.descrizione || "")
-        .toLowerCase()
-        .includes(needle)
+// POST nuova entry (inserisce nel DB)
+app.post("/api/entries", async (req, res, next) => {
+  try {
+    const { person, cantiere, equipment, workType, date, hours, notes } =
+      req.body;
+
+    if (!person || !cantiere || !equipment || !workType || !date) {
+      return res.status(400).json({ error: "Campi obbligatori mancanti" });
+    }
+
+    const iso = toISO(date);
+    const h = Number(hours || 0);
+
+    const { rows } = await db.query(
+      `INSERT INTO entries (person, cantiere, equipment, work_type, work_date, hours, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, person, cantiere, equipment,
+                 work_type AS "workType",
+                 to_char(work_date,'DD/MM/YYYY') AS date,
+                 hours, notes`,
+      [person, cantiere, equipment, workType, iso, h, notes || null]
     );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    next(err);
   }
-  if (dataFrom)
-    entries = entries.filter((e) => parseIt(e.data) >= parseIt(dataFrom));
-  if (dataTo)
-    entries = entries.filter((e) => parseIt(e.data) <= parseIt(dataTo));
-  return entries;
-}
-
-app.post("/api/entries/search", authMiddleware, (req, res) => {
-  const filtered = applyFilters(loadEntries(), req.body || {});
-  res.json({ entries: filtered });
 });
 
-// --- cancellazione filtrati ---
-app.post("/api/entries/delete", authMiddleware, (req, res) => {
-  const all = loadEntries();
-  const toDelete = new Set(applyFilters(all, req.body || {}).map((e) => e.id));
-  if (toDelete.size === 0) return res.json({ deleted: 0 });
-  const remaining = all.filter((e) => !toDelete.has(e.id));
-  saveEntries(remaining);
-  res.json({ deleted: toDelete.size });
-});
-
-// --- cancellazione TUTTI ---
-app.delete("/api/entries/all", authMiddleware, (req, res) => {
-  const count = loadEntries().length;
-  saveEntries([]);
-  res.json({ deleted: count });
-});
-
-// === NUOVO: cancellazione singola riga per id ===
-app.delete("/api/entries/:id", authMiddleware, (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id))
-    return res.status(400).json({ error: "ID non valido" });
-
-  const entries = loadEntries();
-  const idx = entries.findIndex((e) => e.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Record non trovato" });
-
-  entries.splice(idx, 1);
-  saveEntries(entries);
-  res.json({ deleted: 1 });
-});
-
-// --- export CSV/XLSX (immutati) ---
-import ExcelJSModule from "exceljs"; // per sicurezza con bundler
-app.post("/api/export/csv", authMiddleware, (req, res) => {
-  const { entries } = req.body;
-  if (!Array.isArray(entries))
-    return res.status(400).json({ error: "entries mancanti" });
-  const headers = [
-    "Operatore",
-    "Macchina",
-    "Linea",
-    "Ore Lavorate",
-    "Data (DD/MM/YYYY)",
-    "Descrizione lavoro",
-  ];
-  const lines = [headers.join(";")];
-  for (const e of entries) {
-    const row = [
-      e.operator,
-      e.macchina,
-      e.linea,
-      e.ore,
-      e.data,
-      (e.descrizione || "").replace(/\r?\n/g, " "),
-    ].map((v) => (typeof v === "string" ? `"${v.replaceAll('"', '""')}"` : v));
-    lines.push(row.join(";"));
+// DELETE entry per id (dal DB)
+app.delete("/api/entries/:id", async (req, res, next) => {
+  try {
+    await db.query(`DELETE FROM entries WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
   }
-  const csv = lines.join("\n");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=report.csv");
-  res.send(csv);
 });
 
-app.post("/api/export/xlsx", authMiddleware, async (req, res) => {
-  const { entries } = req.body;
-  if (!Array.isArray(entries))
-    return res.status(400).json({ error: "entries mancanti" });
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("Report");
-  ws.columns = [
-    { header: "Operatore", key: "operator", width: 28 },
-    { header: "Macchina", key: "macchina", width: 16 },
-    { header: "Linea", key: "linea", width: 16 },
-    { header: "Ore Lavorate", key: "ore", width: 16 },
-    { header: "Data (DD/MM/YYYY)", key: "data", width: 18 },
-    { header: "Descrizione lavoro", key: "descrizione", width: 60 },
-  ];
-  entries.forEach((e) => ws.addRow(e));
-  ws.getRow(1).font = { bold: true };
-  ws.getRow(1).alignment = { horizontal: "center" };
-  ws.eachRow((row, rowNumber) => {
-    row.eachCell((cell) => {
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-      if (rowNumber > 1 && cell._column && cell._column.key === "ore")
-        cell.numFmt = "0.00";
+// GET operators — legge data/operators.xlsx (prima colonna) se presente
+app.get("/api/operators", async (req, res) => {
+  try {
+    const xlsxPath = path.join(__dirname, "data", "operators.xlsx");
+    if (!fs.existsSync(xlsxPath)) {
+      return res.json([]); // file assente: restituisci array vuoto
+    }
+
+    // import dinamico per non rompere se exceljs non è installato
+    let ExcelJS;
+    try {
+      const mod = await import("exceljs");
+      ExcelJS = mod.default || mod;
+    } catch {
+      return res.json([]); // exceljs non disponibile
+    }
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(xlsxPath);
+    const ws = wb.worksheets[0];
+    if (!ws) return res.json([]);
+
+    const names = [];
+    ws.eachRow((row, rowNumber) => {
+      const val = (row.getCell(1).value ?? "").toString().trim();
+      if (!val) return;
+      const headerCandidates = [
+        "persona",
+        "person",
+        "name",
+        "operatore",
+        "operator",
+      ];
+      if (rowNumber === 1 && headerCandidates.includes(val.toLowerCase()))
+        return; // salta header
+      if (!names.includes(val)) names.push(val);
     });
-  });
-  res.setHeader(
-    "Content-Type",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  );
-  res.setHeader("Content-Disposition", "attachment; filename=report.xlsx");
-  await wb.xlsx.write(res);
-  res.end();
+
+    res.json(names);
+  } catch {
+    res.json([]);
+  }
 });
 
-//app.listen(PORT, () => console.log("Server su http://localhost:" + PORT));
-app.listen(PORT, () => console.log(`Server on ${PORT}`));
+// ===== Rotte di servizio =====
+
+// Healthcheck
+app.get("/health", (_req, res) => res.type("text/plain").send("OK"));
+
+// Sopprimi 404 favicon nei log
+app.get("/favicon.ico", (_req, res) => res.status(204).end());
+
+// (Opzionale) Redirect a dominio personalizzato (decommenta e imposta il tuo dominio)
+/*
+app.use((req, res, next) => {
+  const canonical = process.env.CANONICAL_HOST; // es. "appgts.semiconductor-materials.it"
+  if (canonical && req.headers.host && req.headers.host !== canonical) {
+    return res.redirect(301, `https://${canonical}${req.url}`);
+  }
+  next();
+});
+*/
+
+// ===== Error handler unico =====
+app.use((err, _req, res, _next) => {
+  console.error("API error:", err);
+  res.status(500).json({ error: "Errore interno" });
+});
+
+// ===== Avvio server (Heroku fornisce PORT) =====
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server on ${PORT}`);
+});
