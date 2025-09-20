@@ -97,14 +97,34 @@ app.delete("/api/entries/:id", async (req, res, next) => {
   }
 });
 
-// GET operators — legge data/operators.xlsx (prima colonna) se presente
-// SOSTITUISCI tutta la tua rotta /api/operators con questa
 app.get("/api/operators", async (_req, res, next) => {
   try {
+    const xlsxPath = path.join(__dirname, "data", "operators.xlsx");
+    if (fs.existsSync(xlsxPath)) {
+      // usa ExcelJS solo se il file esiste
+      const mod = await import("exceljs");
+      const ExcelJS = mod.default || mod;
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(xlsxPath);
+      const ws = wb.worksheets[0];
+      const names = [];
+      if (ws) {
+        ws.eachRow((row, i) => {
+          const v = (row.getCell(1).value ?? "").toString().trim();
+          if (!v) return;
+          const header = ["persona", "person", "name", "operatore", "operator"];
+          if (i === 1 && header.includes(v.toLowerCase())) return;
+          if (!names.includes(v)) names.push(v);
+        });
+      }
+      return res.set("Cache-Control", "no-store").json(names);
+    }
+
+    // fallback: DB DISTINCT
     const { rows } = await db.query(
       `SELECT DISTINCT person FROM entries ORDER BY person`
     );
-    res.json(rows.map((r) => r.person));
+    return res.set("Cache-Control", "no-store").json(rows.map((r) => r.person));
   } catch (err) {
     next(err);
   }

@@ -1,13 +1,12 @@
 async function loadOperators() {
+  const sel = document.getElementById("operatori");
+  if (!sel) return; // questa pagina non ha la select, esci senza errori
+
   try {
-    // evita cache del browser
     const res = await fetch("/api/operators", { cache: "no-store" });
     if (!res.ok) throw new Error("fetch /api/operators failed");
     const ops = await res.json(); // es. ["Mario Rossi", ...]
-    const sel = document.querySelector("#operatori"); // <-- ID del <select>
-    if (!sel) return;
 
-    // pulisci e ripopola
     sel.innerHTML = '<option value="">Seleziona operatore…</option>';
     for (const name of ops) {
       const opt = document.createElement("option");
@@ -19,6 +18,11 @@ async function loadOperators() {
     console.error(e);
   }
 }
+
+// con 'defer' il DOM è già pronto, quindi possiamo chiamarla subito
+loadOperators();
+
+document.addEventListener("DOMContentLoaded", loadOperators);
 
 // richiama al caricamento pagina
 document.addEventListener("DOMContentLoaded", loadOperators);
