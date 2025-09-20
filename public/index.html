@@ -14,10 +14,12 @@
 
       <!-- Form principale -->
       <form id="entryForm" class="row g-3" autocomplete="off">
-        <!-- Operatore: spostato QUI dentro -->
         <div class="col-md-4">
-          <label class="form-label" for="operator">Operatore</label>
-          <select id="operator" class="form-select" required></select>
+          <label class="form-label">Operatore</label>
+          <!-- Sostituisci SOLO la riga del controllo qui sotto -->
+          <select id="operator" class="form-select" required>
+            <option value="" selected disabled>Seleziona…</option>
+          </select>
         </div>
 
         <!-- Cantiere -->
