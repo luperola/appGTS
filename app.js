@@ -1,4 +1,5 @@
 // app.js — versione ESM con Postgres per /api/entries
+import "dotenv/config";
 
 import path from "path";
 import fs from "fs";
@@ -14,6 +15,12 @@ const app = express();
 // ===== Middleware base =====
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// PRIMA di app.use(express.static(...))
+app.use((req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
 
 // Statici: /public (index.html, main.js, styles.css, ecc.)
 app.use(express.static("public"));
@@ -121,6 +128,33 @@ app.use((req, res, next) => {
   next();
 });
 */
+
+// POST /login  => { ok:true, token:"admin" } se credenziali ok
+app.post("/login", (req, res) => {
+  const { username, password } = req.body || {};
+  const ok =
+    username === (process.env.ADMIN_USER || "") &&
+    password === (process.env.ADMIN_PASS || "");
+  if (!ok)
+    return res.status(401).json({ ok: false, error: "Credenziali errate" });
+  res.json({ ok: true, token: "admin" }); // token statico minimale
+});
+
+function authAdmin(req, res, next) {
+  const key = req.headers["x-admin-key"];
+  if (key === "admin") return next();
+  return res.status(401).json({ error: "unauthorized" });
+}
+
+// Esempio: cancellazione consentita solo ad admin
+app.delete("/api/entries/:id", authAdmin, async (req, res, next) => {
+  try {
+    await db.query("DELETE FROM entries WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // ===== Error handler unico =====
 app.use((err, _req, res, _next) => {

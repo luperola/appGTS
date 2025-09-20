@@ -116,5 +116,38 @@
       </div>
     </div>
     <script src="admin.js"></script>
+    <script type="module">
+      async function doLogin(e) {
+        e.preventDefault();
+        const username = document.querySelector("#user").value;
+        const password = document.querySelector("#pass").value;
+        const r = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await r.json();
+        if (!data.ok) {
+          alert("Credenziali errate");
+          return;
+        }
+        localStorage.setItem("adminKey", "admin"); // salva token statico
+        alert("Login OK");
+      }
+
+      // esempio chiamata protetta:
+      async function deleteEntry(id) {
+        const key = localStorage.getItem("adminKey") || "";
+        const r = await fetch(`/api/entries/${id}`, {
+          method: "DELETE",
+          headers: { "x-admin-key": key },
+        });
+        if (!r.ok) {
+          alert("Non autorizzato");
+          return;
+        }
+        // refresh UI...
+      }
+    </script>
   </body>
 </html>
