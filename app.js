@@ -240,4 +240,5 @@ app.post("/api/export/xlsx", authMiddleware, async (req, res) => {
   res.end();
 });
 
-app.listen(PORT, () => console.log("Server su http://localhost:" + PORT));
+//app.listen(PORT, () => console.log("Server su http://localhost:" + PORT));
+app.listen(PORT, () => console.log(`Server on ${PORT}`));
