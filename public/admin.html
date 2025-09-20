@@ -115,6 +115,46 @@
         </div>
       </div>
     </div>
+    <form id="loginForm">
+      <input id="user" placeholder="user" autocomplete="username" />
+      <input
+        id="pass"
+        type="password"
+        placeholder="password"
+        autocomplete="current-password"
+      />
+      <button>Login</button>
+    </form>
+
+    <script type="module">
+      document
+        .getElementById("loginForm")
+        ?.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const username = document.getElementById("user").value;
+          const password = document.getElementById("pass").value;
+
+          const r = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.ok) {
+            alert("Credenziali errate");
+            return;
+          }
+
+          localStorage.setItem("adminKey", "admin"); // token minimale
+          alert("Login OK");
+        });
+      fetch(`/api/entries/${id}`, {
+        method: "DELETE",
+        headers: { "x-admin-key": localStorage.getItem("adminKey") || "" },
+      });
+    </script>
+
     <select id="operatori"></select>
     <script src="admin.js"></script>
     <script src="/main.js" defer></script>

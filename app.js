@@ -160,6 +160,17 @@ app.post("/login", (req, res) => {
   res.json({ ok: true, token: "admin" }); // token statico minimale
 });
 
+// alias: /api/login -> /login
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body || {};
+  const ok =
+    username === (process.env.ADMIN_USER || "") &&
+    password === (process.env.ADMIN_PASS || "");
+  if (!ok)
+    return res.status(401).json({ ok: false, error: "Credenziali errate" });
+  res.json({ ok: true, token: "admin" });
+});
+
 function authAdmin(req, res, next) {
   const key = req.headers["x-admin-key"];
   if (key === "admin") return next();

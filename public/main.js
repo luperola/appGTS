@@ -1,14 +1,12 @@
 // public/main.js
 async function loadOperators() {
-  // prova più selettori per essere tolleranti
   const sel =
     document.getElementById("operatori") ||
     document.getElementById("operatorSelect") ||
     document.querySelector("[data-operators]");
+
   if (!sel) {
-    console.warn(
-      '[loadOperators] select non trovata (id="operatori" o simili)'
-    );
+    console.warn('[loadOperators] select non trovata (id="operatori")');
     return;
   }
 
@@ -30,13 +28,13 @@ async function loadOperators() {
   }
 }
 
-// ricarica quando il DOM è pronto
-document.addEventListener("DOMContentLoaded", loadOperators);
+// con defer il DOM è già pronto
+loadOperators();
 
-// (facoltativo) ricarica la lista quando la tendina riceve focus
+// ricarica su focus (comodo se gli operatori cambiano)
 document.addEventListener("focusin", (e) => {
   const sel =
     document.getElementById("operatori") ||
-    document.querySelector("[data-operators]");
+    document.getElementById("operatorSelect");
   if (sel && e.target === sel) loadOperators();
 });
