@@ -92,26 +92,27 @@ document.addEventListener("DOMContentLoaded", () => {
   setTodayMaxDate("f-from");
   setTodayMaxDate("f-to");
 
-  $("loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user: $("user").value.trim(),
-        pass: $("pass").value.trim(),
-      }),
+  document
+    .getElementById("loginForm")
+    ?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("user").value;
+      const password = document.getElementById("pass").value;
+
+      const r = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        alert("Credenziali errate");
+        return;
+      }
+      localStorage.setItem("adminKey", "admin"); // token minimale
+      alert("Login OK");
     });
-    const out = await res.json();
-    if (res.ok) {
-      TOKEN = out.token;
-      $("panel").classList.remove("d-none");
-      $("loginMsg").textContent = "Login OK";
-      search();
-    } else {
-      $("loginMsg").textContent = out.error || "Errore credenziali";
-    }
-  });
 
   $("filterForm").addEventListener("submit", (e) => {
     e.preventDefault();
