@@ -33,11 +33,11 @@ async function search() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + TOKEN,
+      Authorization: "Bearer " + (TOKEN || ""),
     },
     body: JSON.stringify(payload),
   });
-  const out = await res.json();
+  const out = await res.json().catch(() => ({}));
   if (!res.ok) {
     $("loginMsg").textContent = out.error || "Errore";
     return;
@@ -46,7 +46,7 @@ async function search() {
   tbody.innerHTML = "";
   for (const e of out.entries) {
     const tr = document.createElement("tr");
-    tr.dataset.id = e.id; // serve per cancellazione singola
+    tr.dataset.id = e.id; // per eliminazione singola
     tr.innerHTML = `
       <td>${e.operator}</td>
       <td>${e.macchina}</td>
@@ -83,49 +83,56 @@ function clearFilters() {
     }
   );
 }
-$("btnReset").addEventListener("click", () => {
-  clearFilters();
-  search();
-});
 
 document.addEventListener("DOMContentLoaded", () => {
   setTodayMaxDate("f-from");
   setTodayMaxDate("f-to");
 
-  document
-    .getElementById("loginForm")
-    ?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const username = document.getElementById("user").value;
-      const password = document.getElementById("pass").value;
+  // LOGIN — usa username/password e, se OK, mostra il pannello e avvia la ricerca
+  $("loginForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = $("user").value;
+    const password = $("pass").value;
 
-      const r = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        alert("Credenziali errate");
-        return;
-      }
-      localStorage.setItem("adminKey", "admin"); // token minimale
-      alert("Login OK");
+    const r = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
     });
 
-  $("filterForm").addEventListener("submit", (e) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      $("loginMsg").textContent = data.error || "Credenziali errate";
+      return;
+    }
+
+    TOKEN = data.token || "admin"; // token dal server
+    try {
+      localStorage.setItem("adminKey", TOKEN);
+    } catch {}
+
+    $("panel")?.classList.remove("d-none"); // mostra il pannello
+    $("loginMsg").textContent = "Login OK";
+    search(); // carica i dati subito
+  });
+
+  $("filterForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     search();
   });
 
-  $("btnCsv").addEventListener("click", async () => {
+  $("btnReset")?.addEventListener("click", () => {
+    clearFilters();
+    search();
+  });
+
+  $("btnCsv")?.addEventListener("click", async () => {
     const entries = window.__lastEntries || [];
     const res = await fetch("/api/export/csv", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + TOKEN,
+        Authorization: "Bearer " + (TOKEN || ""),
       },
       body: JSON.stringify({ entries }),
     });
@@ -133,13 +140,13 @@ document.addEventListener("DOMContentLoaded", () => {
     downloadBlob(blob, "report.csv");
   });
 
-  $("btnXlsx").addEventListener("click", async () => {
+  $("btnXlsx")?.addEventListener("click", async () => {
     const entries = window.__lastEntries || [];
-    const res = await fetch("/api/export/xlsx", {
+    const res = await resFetch("/api/export/xlsx", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + TOKEN,
+        Authorization: "Bearer " + (TOKEN || ""),
       },
       body: JSON.stringify({ entries }),
     });
@@ -147,7 +154,8 @@ document.addEventListener("DOMContentLoaded", () => {
     downloadBlob(blob, "report.xlsx");
   });
 
-  $("btnDeleteFiltered").addEventListener("click", async () => {
+  // Elimina TUTTI i filtrati (listener attaccato solo se il bottone esiste)
+  $("btnDeleteFiltered")?.addEventListener("click", async () => {
     if (!TOKEN) return;
     const ok = window.confirm(
       "Confermi l'eliminazione di TUTTI i record attualmente filtrati?"
@@ -162,7 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       body: JSON.stringify(filters),
     });
-    const out = await res.json();
+    const out = await res.json().catch(() => ({}));
     if (res.ok) {
       $("loginMsg").textContent = `Eliminati ${out.deleted} record.`;
       search();
@@ -171,7 +179,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  $("btnDeleteAll").addEventListener("click", async () => {
+  // Elimina TUTTO (listener attaccato solo se il bottone esiste)
+  $("btnDeleteAll")?.addEventListener("click", async () => {
     if (!TOKEN) return;
     const ok = window.confirm(
       "ATTENZIONE: questa azione eliminerà TUTTE le presenze. Confermi?"
@@ -181,7 +190,7 @@ document.addEventListener("DOMContentLoaded", () => {
       method: "DELETE",
       headers: { Authorization: "Bearer " + TOKEN },
     });
-    const out = await res.json();
+    const out = await res.json().catch(() => ({}));
     if (res.ok) {
       $("loginMsg").textContent = `Eliminati ${out.deleted} record (tutti).`;
       search();
@@ -190,28 +199,34 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // === NUOVO: delega per eliminazione singola riga ===
-  document.querySelector("#tbl tbody").addEventListener("click", async (ev) => {
-    const btn = ev.target.closest(".btn-del");
-    if (!btn) return;
-    if (!TOKEN) return;
+  // Delega: elimina singola riga (se esiste la tabella)
+  document
+    .querySelector("#tbl tbody")
+    ?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest(".btn-del");
+      if (!btn || !TOKEN) return;
 
-    const id = btn.dataset.id;
-    const ok = window.confirm("Eliminare questa riga?");
-    if (!ok) return;
+      const id = btn.dataset.id;
+      const ok = window.confirm("Eliminare questa riga?");
+      if (!ok) return;
 
-    const res = await fetch(`/api/entries/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: "Bearer " + TOKEN },
+      const res = await fetch(`/api/entries/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + TOKEN },
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok) {
+        btn.closest("tr")?.remove();
+        $("loginMsg").textContent = "Riga eliminata.";
+      } else {
+        $("loginMsg").textContent = out.error || "Errore eliminazione riga";
+      }
     });
-    const out = await res.json();
-    if (res.ok) {
-      // rimuovo la riga dal DOM senza ricaricare tutta la tabella
-      const tr = btn.closest("tr");
-      if (tr) tr.remove();
-      $("loginMsg").textContent = "Riga eliminata.";
-    } else {
-      $("loginMsg").textContent = out.error || "Errore eliminazione riga";
-    }
-  });
 });
+
+// Piccolo helper per gestire eventuali errori di rete in export xlsx
+async function resFetch(url, options) {
+  const r = await fetch(url, options);
+  if (!r.ok) return r; // lascio gestire sopra
+  return r;
+}
