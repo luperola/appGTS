@@ -44,24 +44,24 @@ async function search() {
   }
   const tbody = document.querySelector("#tbl tbody");
   tbody.innerHTML = "";
-  for (const e of out.entries) {
+  for (const e of out.entries || []) {
     const tr = document.createElement("tr");
-    tr.dataset.id = e.id; // per eliminazione singola
+    tr.dataset.id = e.id;
     tr.innerHTML = `
       <td>${e.operator}</td>
       <td>${e.macchina}</td>
       <td>${e.linea}</td>
-      <td>${Number(e.ore).toFixed(2)}</td>
+      <td>${Number(e.ore || 0).toFixed(2)}</td>
       <td>${e.data}</td>
-      <td>${e.descrizione}</td>
+      <td>${e.descrizione || ""}</td>
       <td class="text-end">
         <button class="btn btn-sm btn-outline-danger btn-del" data-id="${
           e.id
-        }" title="Elimina riga">Elimina</button>
+        }" title="Elimina">Elimina</button>
       </td>`;
     tbody.appendChild(tr);
   }
-  window.__lastEntries = out.entries;
+  window.__lastEntries = out.entries || [];
 }
 
 function downloadBlob(blob, filename) {
@@ -88,44 +88,42 @@ document.addEventListener("DOMContentLoaded", () => {
   setTodayMaxDate("f-from");
   setTodayMaxDate("f-to");
 
-  // LOGIN — usa username/password e, se OK, mostra il pannello e avvia la ricerca
+  // LOGIN (usa /api/login; server accetta user/pass o username/password)
   $("loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const username = $("user").value;
-    const password = $("pass").value;
+    const username = $("user").value.trim();
+    const password = $("pass").value.trim();
 
     const r = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data.ok) {
       $("loginMsg").textContent = data.error || "Credenziali errate";
       return;
     }
-
-    TOKEN = data.token || "admin"; // token dal server
+    TOKEN = data.token || "admin";
     try {
       localStorage.setItem("adminKey", TOKEN);
     } catch {}
-
-    $("panel")?.classList.remove("d-none"); // mostra il pannello
+    $("panel")?.classList.remove("d-none");
     $("loginMsg").textContent = "Login OK";
-    search(); // carica i dati subito
+    search();
   });
 
+  // FILTRI
   $("filterForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     search();
   });
-
   $("btnReset")?.addEventListener("click", () => {
     clearFilters();
     search();
   });
 
+  // EXPORT
   $("btnCsv")?.addEventListener("click", async () => {
     const entries = window.__lastEntries || [];
     const res = await fetch("/api/export/csv", {
@@ -142,7 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("btnXlsx")?.addEventListener("click", async () => {
     const entries = window.__lastEntries || [];
-    const res = await resFetch("/api/export/xlsx", {
+    const res = await fetch("/api/export/xlsx", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -154,61 +152,14 @@ document.addEventListener("DOMContentLoaded", () => {
     downloadBlob(blob, "report.xlsx");
   });
 
-  // Elimina TUTTI i filtrati (listener attaccato solo se il bottone esiste)
-  $("btnDeleteFiltered")?.addEventListener("click", async () => {
-    if (!TOKEN) return;
-    const ok = window.confirm(
-      "Confermi l'eliminazione di TUTTI i record attualmente filtrati?"
-    );
-    if (!ok) return;
-    const filters = currentFiltersPayload();
-    const res = await fetch("/api/entries/delete", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + TOKEN,
-      },
-      body: JSON.stringify(filters),
-    });
-    const out = await res.json().catch(() => ({}));
-    if (res.ok) {
-      $("loginMsg").textContent = `Eliminati ${out.deleted} record.`;
-      search();
-    } else {
-      $("loginMsg").textContent = out.error || "Errore eliminazione";
-    }
-  });
-
-  // Elimina TUTTO (listener attaccato solo se il bottone esiste)
-  $("btnDeleteAll")?.addEventListener("click", async () => {
-    if (!TOKEN) return;
-    const ok = window.confirm(
-      "ATTENZIONE: questa azione eliminerà TUTTE le presenze. Confermi?"
-    );
-    if (!ok) return;
-    const res = await fetch("/api/entries/all", {
-      method: "DELETE",
-      headers: { Authorization: "Bearer " + TOKEN },
-    });
-    const out = await res.json().catch(() => ({}));
-    if (res.ok) {
-      $("loginMsg").textContent = `Eliminati ${out.deleted} record (tutti).`;
-      search();
-    } else {
-      $("loginMsg").textContent = out.error || "Errore eliminazione";
-    }
-  });
-
-  // Delega: elimina singola riga (se esiste la tabella)
+  // DELETE una riga
   document
     .querySelector("#tbl tbody")
     ?.addEventListener("click", async (ev) => {
       const btn = ev.target.closest(".btn-del");
       if (!btn || !TOKEN) return;
-
       const id = btn.dataset.id;
-      const ok = window.confirm("Eliminare questa riga?");
-      if (!ok) return;
+      if (!confirm("Eliminare questa riga?")) return;
 
       const res = await fetch(`/api/entries/${id}`, {
         method: "DELETE",
@@ -219,14 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.closest("tr")?.remove();
         $("loginMsg").textContent = "Riga eliminata.";
       } else {
-        $("loginMsg").textContent = out.error || "Errore eliminazione riga";
+        $("loginMsg").textContent = out.error || "Errore eliminazione";
       }
     });
 });
-
-// Piccolo helper per gestire eventuali errori di rete in export xlsx
-async function resFetch(url, options) {
-  const r = await fetch(url, options);
-  if (!r.ok) return r; // lascio gestire sopra
-  return r;
-}
